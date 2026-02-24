@@ -1,19 +1,23 @@
 import { NextResponse } from 'next/server'
 import { Octokit } from '@octokit/rest'
 import { createClient } from '@/lib/supabase/server'
+import { getGitHubToken } from '@/lib/github-token'
 
 export async function GET() {
     try {
         const supabase = await createClient()
-        const { data: { session } } = await supabase.auth.getSession()
-        const token = session?.provider_token
+
+        let token: string
+        try {
+            token = await getGitHubToken(supabase)
+        } catch (err: any) {
+            return NextResponse.json(
+                { error: err.message, code: 'NO_TOKEN' },
+                { status: 401 }
+            )
+        }
 
         console.log('Token type:', typeof token)
-        console.log('Token prefix:', token?.substring(0, 10))
-
-        if (!token) {
-            return NextResponse.json({ error: 'No token in session' }, { status: 401 })
-        }
 
         const octokit = new Octokit({ auth: token })
 

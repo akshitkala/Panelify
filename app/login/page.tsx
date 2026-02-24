@@ -9,17 +9,18 @@ export default function LoginPage() {
     const supabase = createClient()
 
     const handleLogin = async () => {
-        const { error } = await supabase.auth.signInWithOAuth({
-            provider: 'github',
-            options: {
-                redirectTo: `${window.location.origin}/api/auth/callback`,
-            },
-        })
+    const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'github',
+        options: {
+            redirectTo: `${window.location.origin}/api/auth/callback`,
+            scopes: 'repo user:email',
+        },
+    })
 
-        if (error) {
-            console.error("Login failed:", error.message)
-        }
+    if (error) {
+        console.error("Login failed:", error.message)
     }
+}
 
     return (
         <div className="min-h-screen flex items-center justify-center p-4 bg-background overflow-hidden relative">
