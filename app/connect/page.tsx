@@ -6,12 +6,13 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Search, Github, RefreshCw, CheckCircle2 } from "lucide-react"
+import { Search, Github, RefreshCw, CheckCircle2, AlertCircle } from "lucide-react"
 
 interface Repo {
     name: string
     full_name: string
     description: string | null
+    default_branch: string
     platform?: 'vercel' | 'netlify' | 'unknown'
 }
 
@@ -22,6 +23,7 @@ export default function ConnectRepoPage() {
     const [search, setSearch] = useState("")
     const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null)
     const [detecting, setDetecting] = useState(false)
+    const [error, setError] = useState<string | null>(null)
 
     useEffect(() => {
         fetchRepos()
@@ -29,36 +31,49 @@ export default function ConnectRepoPage() {
 
     const fetchRepos = async () => {
         setLoading(true)
+        setError(null)
         try {
             const res = await fetch("/api/repos")
+            if (!res.ok) {
+                const text = await res.text()
+                throw new Error(text || "Failed to fetch repositories")
+            }
             const data = await res.json()
             if (Array.isArray(data)) {
                 setRepos(data)
+            } else {
+                throw new Error("Invalid response format from server")
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to fetch repos:", error)
+            setError(error.message || "Something went wrong while loading your repositories.")
         } finally {
             setLoading(false)
         }
     }
 
     const handleSelect = async (repo: Repo) => {
+        setError(null)
         setSelectedRepo(repo)
         setDetecting(true)
 
         try {
-            // In a real app, we'd fetch the repo tree to check for vercel.json/netlify.toml
-            // For this demo, we'll call detection with an empty file list for now
-            // which will trigger the deployment check in our API.
             const res = await fetch("/api/platform/detect", {
                 method: "POST",
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ repo_full_name: repo.full_name, repo_files: [] })
             })
-            const { platform } = await res.json()
 
+            if (!res.ok) {
+                const text = await res.text()
+                throw new Error(text || "Platform detection failed")
+            }
+
+            const { platform } = await res.json()
             setSelectedRepo(prev => prev ? { ...prev, platform } : null)
-        } catch (error) {
+        } catch (error: any) {
             console.error("Platform detection failed:", error)
+            setError(error.message || "Failed to detect the project platform.")
         } finally {
             setDetecting(false)
         }
@@ -80,6 +95,13 @@ export default function ConnectRepoPage() {
                         <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                     </Button>
                 </header>
+
+                {error && (
+                    <div className="bg-destructive/10 border border-destructive/20 text-destructive p-4 rounded-lg flex items-center gap-3">
+                        <AlertCircle className="h-5 w-5" />
+                        <p className="text-sm font-medium">{error}</p>
+                    </div>
+                )}
 
                 <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -131,7 +153,9 @@ export default function ConnectRepoPage() {
                                         {!detecting && (
                                             <Button size="sm" onClick={(e) => {
                                                 e.stopPropagation()
-                                                router.push("/scanning")
+                                                sessionStorage.setItem("selected_repo", repo.full_name)
+                                                sessionStorage.setItem("default_branch", repo.default_branch)
+                                                router.push(`/scanning?repo=${repo.full_name}`)
                                             }}>
                                                 Continue
                                             </Button>

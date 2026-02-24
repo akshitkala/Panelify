@@ -1,30 +1,32 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
 
 export async function POST(request: Request) {
-    const supabase = await createClient();
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    try {
+        const body = await request.json().catch(() => ({}));
+        const { confirmed_fields } = body;
 
-    const { confirmed_fields } = await request.json();
-
-    if (!confirmed_fields || confirmed_fields.length === 0) {
-        return NextResponse.json({ error: 'No fields confirmed', code: 'NO_FIELDS' }, { status: 400 });
-    }
-
-    // Build content.json schema
-    // confirmed_fields: [{ component, field_id, label, type, current_value, ... }]
-    const schema: any = {};
-
-    confirmed_fields.forEach((field: any) => {
-        const sectionName = field.component.replace(/\.(jsx|tsx|js|ts)$/, '').toLowerCase();
-
-        if (!schema[sectionName]) {
-            schema[sectionName] = {};
+        if (!confirmed_fields || !Array.isArray(confirmed_fields)) {
+            return NextResponse.json({ error: 'INVALID_INPUT', details: 'confirmed_fields is required' }, { status: 400 });
         }
 
-        schema[sectionName][field.field_id] = field.current_value;
-    });
+        const schema: any = {};
+        confirmed_fields.forEach((field: any) => {
+            if (!field.field_id || !field.current_value) return;
 
-    return NextResponse.json({ schema });
+            // Handle missing component name gracefully
+            const rawComponent = field.component || 'Global';
+            const sectionName = rawComponent.replace(/\.(jsx|tsx|js|ts)$/, '').toLowerCase();
+
+            if (!schema[sectionName]) schema[sectionName] = {};
+            schema[sectionName][field.field_id] = field.current_value;
+        });
+
+        return NextResponse.json({ schema });
+    } catch (error: any) {
+        console.error("Preparation API Failed:", error);
+        return NextResponse.json({
+            error: 'PREPARE_FAILED',
+            message: error.message
+        }, { status: 500 });
+    }
 }

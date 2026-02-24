@@ -26,7 +26,11 @@ export async function refactorFiles(
 
     for (const file of files) {
         try {
-            const sectionName = file.path.split('/').pop()?.split('.')[0].toLowerCase();
+            // Handle both / and \ delimiters
+            const parts = file.path.split(/[\\/]/);
+            const filename = parts.pop() || '';
+            const sectionName = filename.split('.')[0].toLowerCase();
+
             if (!sectionName || !schema[sectionName]) {
                 results.push({ path: file.path, new_content: file.content });
                 continue;
@@ -81,7 +85,10 @@ export async function refactorFiles(
 
             if (changed) {
                 // Add Import and Destructuring
-                const relativePath = getRelativeContentPath(file.path);
+                // parts currently contains the parent directories (length = nesting depth)
+                const depth = parts.length;
+                const relativePath = depth === 0 ? './content.json' : '../'.repeat(depth) + 'content.json';
+
                 const importDeclaration = t.importDeclaration(
                     [t.importDefaultSpecifier(t.identifier('content'))],
                     t.stringLiteral(relativePath)
@@ -113,17 +120,9 @@ export async function refactorFiles(
 
         } catch (err) {
             console.error(`Refactor failed for ${file.path}:`, err);
-            // In production, we'd throw REFACTOR_ERROR
             results.push({ path: file.path, new_content: file.content });
         }
     }
 
     return results;
-}
-
-function getRelativeContentPath(filePath: string): string {
-    const parts = filePath.split('/');
-    if (parts.length === 1) return './content.json';
-    const dots = '../'.repeat(parts.length - 1);
-    return `${dots}content.json`;
 }

@@ -1,30 +1,48 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getGitHubToken } from '@/lib/github-token';
 import { Octokit } from '@octokit/rest';
 
 export async function GET(request: Request) {
-    const { searchParams } = new URL(request.url);
-    const repo_full_name = searchParams.get('repo_full_name');
-
-    if (!repo_full_name) return NextResponse.json({ error: 'Missing repo' }, { status: 400 });
-
-    const supabase = await createClient();
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-    const octokit = new Octokit({ auth: session.provider_token });
-    const [owner, repo] = repo_full_name.split('/');
-
     try {
-        const { data } = await octokit.repos.getContent({
+        const { searchParams } = new URL(request.url);
+        const repo_full_name = searchParams.get('repo_full_name');
+
+        if (!repo_full_name) {
+            return NextResponse.json({ error: 'Missing repo_full_name' }, { status: 400 });
+        }
+
+        const supabase = await createClient();
+
+        let token: string
+        try {
+            token = await getGitHubToken(supabase)
+        } catch (err: any) {
+            return NextResponse.json(
+                { error: err.message, code: 'NO_TOKEN' },
+                { status: 401 }
+            )
+        }
+
+        const octokit = new Octokit({ auth: token });
+        const [owner, repo] = repo_full_name.split('/');
+
+        const { data: file }: any = await octokit.repos.getContent({
             owner,
             repo,
             path: 'content.json'
         });
 
-        const content = JSON.parse(Buffer.from((data as any).content, 'base64').toString());
-        return NextResponse.json({ content, sha: (data as any).sha });
-    } catch (error) {
-        return NextResponse.json({ error: 'CONTENT_NOT_FOUND', code: 'CONTENT_NOT_FOUND' }, { status: 404 });
+        const decoded = Buffer.from(file.content, 'base64').toString('utf-8');
+        return NextResponse.json({
+            content: JSON.parse(decoded),
+            sha: file.sha
+        });
+    } catch (error: any) {
+        if (error.status === 404) {
+            return NextResponse.json({ content: null }, { status: 200 });
+        }
+        console.error("Content read failed:", error);
+        return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }

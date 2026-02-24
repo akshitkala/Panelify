@@ -9,8 +9,24 @@ export async function GET(request: Request) {
 
     if (code) {
         const supabase = await createClient()
-        const { error } = await supabase.auth.exchangeCodeForSession(code)
+        const { data: { session }, error } = await supabase.auth.exchangeCodeForSession(code)
+
         if (!error) {
+            // Store GitHub OAuth token persistently — provider_token 
+            // is lost after session refresh so we save it to the database
+            if (session?.provider_token) {
+                await supabase
+                    .from('user_tokens')
+                    .upsert({
+                        user_id: session.user.id,
+                        github_token: session.provider_token,
+                        updated_at: new Date().toISOString()
+                    }, { onConflict: 'user_id' })
+                console.log('✓ GitHub token stored for user:', session.user.id)
+            } else {
+                console.error('✗ No provider_token in session at callback')
+            }
+
             return NextResponse.redirect(`${origin}${next}`)
         }
     }

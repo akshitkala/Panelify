@@ -25,7 +25,8 @@ Editable types:
 RULES:
 - Do NOT identify technical strings (classNames, event handlers, route paths like '/login').
 - Do NOT identify layout boilerplate (e.g. "Made with React").
-- For each field, provide: component name, a unique field_id (snake_case), a human-readable label, type, current_value, and confidence score (0.0 to 1.0).
+- For each field, provide: component (the name of the component, e.g. "Hero"), a unique field_id (snake_case), a human-readable label, type, current_value, and confidence score (0.0 to 1.0).
+- **CRITICAL**: The "component" property is REQUIRED and must match the component name found in the file.
 - Return ONLY a JSON array of AIField objects.
 `;
 
@@ -33,11 +34,13 @@ export async function analyzeJSX(
     files: { path: string; content: string }[]
 ): Promise<AIField[]> {
     try {
-        return await analyzeWithGemini(files);
+        const results = await analyzeWithGemini(files);
+        return mapResults(results, files);
     } catch (err) {
         console.warn('Gemini failed, falling back to Groq:', err);
         try {
-            return await analyzeWithGroq(files);
+            const results = await analyzeWithGroq(files);
+            return mapResults(results, files);
         } catch (groqErr) {
             console.error('Both Gemini and Groq failed:', groqErr);
             throw new Error('AI_ERROR');
@@ -45,9 +48,27 @@ export async function analyzeJSX(
     }
 }
 
+function mapResults(results: AIField[], files: { path: string; content: string }[]): AIField[] {
+    return results.map(field => {
+        // Ensure component name exists, fallback to filename if missing
+        if (!field.component) {
+            const matchingFile = files.find(f => f.content.includes(field.current_value));
+            if (matchingFile) {
+                // Manually handle path splitting to avoid node:path dependency
+                const parts = matchingFile.path.split(/[\\/]/);
+                const basename = parts.pop() || 'Component';
+                field.component = basename.replace(/\.(tsx|jsx|js|ts)$/, '');
+            } else {
+                field.component = 'Unknown';
+            }
+        }
+        return field;
+    });
+}
+
 async function analyzeWithGemini(files: { path: string; content: string }[]): Promise<AIField[]> {
     const model = genAI.getGenerativeModel({
-        model: "gemini-1.5-flash",
+        model: "gemini-1.5-flash-latest",
         generationConfig: { responseMimeType: "application/json" }
     });
 

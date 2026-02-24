@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent } from "@/components/ui/card"
-import { CheckCircle2, Circle, Loader2 } from "lucide-react"
+import { CheckCircle2, Circle, Loader2, AlertCircle } from "lucide-react"
 
 const SCAN_STEPS = [
     "Connecting to GitHub...",
@@ -19,6 +19,7 @@ export default function ScanningPage() {
     const repo = searchParams.get("repo")
     const [currentStep, setCurrentStep] = useState(0)
     const [completedSteps, setCompletedSteps] = useState<number[]>([])
+    const [error, setError] = useState<string | null>(null)
 
     useEffect(() => {
         if (!repo) {
@@ -27,27 +28,40 @@ export default function ScanningPage() {
         }
 
         const runScan = async () => {
+            setError(null)
             try {
-                // Step 1 & 2: Fetch files
+                // Step 1: Fetch files
                 setCurrentStep(0)
                 const filesRes = await fetch("/api/scan/files", {
                     method: "POST",
+                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ repo_full_name: repo })
                 })
+
+                if (!filesRes.ok) {
+                    const text = await filesRes.text()
+                    throw new Error(`Failed to fetch files: ${text || filesRes.statusText}`)
+                }
                 const files = await filesRes.json()
                 setCompletedSteps(prev => [...prev, 0, 1])
                 setCurrentStep(2)
 
-                // Step 3 & 4: Analyze
+                // Step 2: Analyze
                 const analyzeRes = await fetch("/api/scan/analyze", {
                     method: "POST",
+                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ files, repo_full_name: repo })
                 })
+
+                if (!analyzeRes.ok) {
+                    const text = await analyzeRes.text()
+                    throw new Error(`Analysis failed: ${text || analyzeRes.statusText}`)
+                }
                 const fields = await analyzeRes.json()
                 setCompletedSteps(prev => [...prev, 2, 3])
                 setCurrentStep(4)
 
-                // Step 5: Finalize
+                // Step 3: Finalize
                 setCompletedSteps(prev => [...prev, 4])
 
                 // Save fields to session storage for the confirmation screen
@@ -57,9 +71,9 @@ export default function ScanningPage() {
                 setTimeout(() => {
                     router.push("/confirm")
                 }, 1000)
-            } catch (error) {
+            } catch (error: any) {
                 console.error("Scan failed:", error)
-                // In a real app, show error state
+                setError(error.message || "An unexpected error occurred during the scan.")
             }
         }
 
@@ -76,20 +90,35 @@ export default function ScanningPage() {
 
                 <Card className="bg-card/50 border-border">
                     <CardContent className="p-6 space-y-6">
-                        {SCAN_STEPS.map((step, i) => (
-                            <div key={i} className="flex items-center gap-4 transition-all">
-                                {completedSteps.includes(i) ? (
-                                    <CheckCircle2 className="h-6 w-6 text-accent-green" />
-                                ) : currentStep === i ? (
-                                    <Loader2 className="h-6 w-6 text-primary animate-spin" />
-                                ) : (
-                                    <Circle className="h-6 w-6 text-muted" />
-                                )}
-                                <span className={`text-base ${currentStep === i ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
-                                    {step}
-                                </span>
+                        {error ? (
+                            <div className="space-y-4">
+                                <div className="bg-destructive/10 border border-destructive/20 text-destructive p-4 rounded-lg flex items-center gap-3">
+                                    <AlertCircle className="h-5 w-5" />
+                                    <p className="text-sm font-medium">{error}</p>
+                                </div>
+                                <button
+                                    onClick={() => router.push("/connect")}
+                                    className="w-full py-2 bg-secondary text-secondary-foreground rounded-md text-sm font-medium hover:bg-secondary/80 transition-colors"
+                                >
+                                    Go back and try again
+                                </button>
                             </div>
-                        ))}
+                        ) : (
+                            SCAN_STEPS.map((step, i) => (
+                                <div key={i} className="flex items-center gap-4 transition-all">
+                                    {completedSteps.includes(i) ? (
+                                        <CheckCircle2 className="h-6 w-6 text-accent-green" />
+                                    ) : currentStep === i ? (
+                                        <Loader2 className="h-6 w-6 text-primary animate-spin" />
+                                    ) : (
+                                        <Circle className="h-6 w-6 text-muted" />
+                                    )}
+                                    <span className={`text-base ${currentStep === i ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
+                                        {step}
+                                    </span>
+                                </div>
+                            ))
+                        )}
                     </CardContent>
                 </Card>
 

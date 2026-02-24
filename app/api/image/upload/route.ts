@@ -1,11 +1,20 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getGitHubToken } from '@/lib/github-token';
 import { Octokit } from '@octokit/rest';
 
 export async function POST(request: Request) {
     const supabase = await createClient();
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    let token: string
+    try {
+        token = await getGitHubToken(supabase)
+    } catch (err: any) {
+        return NextResponse.json(
+            { error: err.message, code: 'NO_TOKEN' },
+            { status: 401 }
+        )
+    }
 
     const formData = await request.formData();
     const file = formData.get('file') as File;
@@ -14,7 +23,25 @@ export async function POST(request: Request) {
 
     if (!file || !repo_full_name) return NextResponse.json({ error: 'Missing data' }, { status: 400 });
 
-    const octokit = new Octokit({ auth: session.provider_token });
+    // 1. File size check (2MB)
+    const MAX_SIZE = 2 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+        return NextResponse.json(
+            { error: 'File too large', code: 'FILE_TOO_LARGE' },
+            { status: 413 }
+        );
+    }
+
+    // 2. File type check
+    const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!ALLOWED_TYPES.includes(file.type)) {
+        return NextResponse.json(
+            { error: 'Unsupported file type', code: 'BAD_TYPE' },
+            { status: 415 }
+        );
+    }
+
+    const octokit = new Octokit({ auth: token });
     const [owner, repo] = repo_full_name.split('/');
 
     try {

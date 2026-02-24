@@ -1,44 +1,91 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getGitHubToken } from '@/lib/github-token';
 import { Octokit } from '@octokit/rest';
 
 export async function POST(request: Request) {
-    const supabase = await createClient();
-    const { data: { session } } = await supabase.auth.getSession();
-
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
+  try {
     const { repo_full_name } = await request.json();
-    const octokit = new Octokit({ auth: session.provider_token });
+    const supabase = await createClient();
+
+    let token: string
+    try {
+      token = await getGitHubToken(supabase)
+    } catch (err: any) {
+      return NextResponse.json(
+        { error: err.message, code: 'NO_TOKEN' },
+        { status: 401 }
+      )
+    }
+
+    const octokit = new Octokit({ auth: token });
     const [owner, repo] = repo_full_name.split('/');
 
-    try {
-        // Basic implementation: get all files in repo
-        // For V1, we recursively fetch the tree
-        const { data: tree } = await octokit.git.getTree({
-            owner,
-            repo,
-            tree_sha: 'main', // Default branch
-            recursive: 'true'
+    // 1. Recursive search for JSX/TSX files in likely directories
+    const searchDirs = ['components', 'app', 'pages', 'lib'];
+    const discoveredFiles: { path: string; content: string }[] = [];
+
+    async function scanDir(path: string) {
+      try {
+        const { data: content } = await octokit.repos.getContent({
+          owner,
+          repo,
+          path
         });
 
-        const jsxFiles = tree.tree.filter(f => f.path?.match(/\.(jsx|tsx)$/) && !f.path.includes('layout'))
-            .slice(0, 10); // Limit for scan safety
+        if (Array.isArray(content)) {
+          for (const item of content) {
+            if (discoveredFiles.length >= 10) break;
 
-        const contents = await Promise.all(jsxFiles.map(async f => {
-            const { data } = await octokit.repos.getContent({
+            if (item.type === 'dir' && searchDirs.some(d => item.path.startsWith(d))) {
+              await scanDir(item.path);
+            } else if (item.type === 'file' && /\.(tsx|jsx|js|ts)$/.test(item.name)) {
+              // Fetch file content
+              const { data: fileData }: any = await octokit.repos.getContent({
                 owner,
                 repo,
-                path: f.path!
-            });
-            return {
-                path: f.path!,
-                content: Buffer.from((data as any).content, 'base64').toString()
-            };
-        }));
-
-        return NextResponse.json(contents);
-    } catch (error) {
-        return NextResponse.json({ error: 'GITHUB_ERROR' }, { status: 502 });
+                path: item.path
+              });
+              const decoded = Buffer.from(fileData.content, 'base64').toString('utf-8');
+              discoveredFiles.push({
+                path: item.path,
+                content: decoded
+              });
+            }
+          }
+        }
+      } catch (e) {
+        // Ignore missing dirs
+      }
     }
+
+    // Start scanning from root for specific dirs
+    const { data: rootContent } = await octokit.repos.getContent({ owner, repo, path: '' });
+    if (Array.isArray(rootContent)) {
+      for (const item of rootContent) {
+        if (discoveredFiles.length >= 10) break;
+        if (searchDirs.includes(item.name)) {
+          await scanDir(item.name);
+        }
+        // Also scan root files
+        if (item.type === 'file' && /\.(tsx|jsx|js|ts)$/.test(item.name)) {
+          const { data: fileData }: any = await octokit.repos.getContent({
+            owner,
+            repo,
+            path: item.path
+          });
+          const decoded = Buffer.from(fileData.content, 'base64').toString('utf-8');
+          discoveredFiles.push({
+            path: item.path,
+            content: decoded
+          });
+        }
+      }
+    }
+
+    return NextResponse.json(discoveredFiles);
+  } catch (error: any) {
+    console.error("File scan failed:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 }

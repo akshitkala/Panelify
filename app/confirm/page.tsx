@@ -21,12 +21,18 @@ export default function ConfirmPage() {
     const router = useRouter()
     const [fields, setFields] = useState<ScannedField[]>([])
     const [loading, setLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
 
     useEffect(() => {
         const data = sessionStorage.getItem("scanned_fields")
         if (data) {
-            const parsed = JSON.parse(data).map((f: any) => ({ ...f, confirmed: true }))
-            setFields(parsed)
+            try {
+                const parsed = JSON.parse(data).map((f: any) => ({ ...f, confirmed: true }))
+                setFields(parsed)
+            } catch (e) {
+                console.error("Failed to parse scanned fields:", e)
+                setError("Failed to load scan results. Please try scanning again.")
+            }
         } else {
             router.push("/connect")
         }
@@ -42,20 +48,46 @@ export default function ConfirmPage() {
 
     const handleConfirm = async () => {
         setLoading(true)
+        setError(null)
         const confirmed = fields.filter(f => f.confirmed)
         const repo = sessionStorage.getItem("selected_repo")
 
         try {
             const res = await fetch("/api/scan/prepare", {
                 method: "POST",
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ confirmed_fields: confirmed, repo_full_name: repo })
             })
-            const { schema } = await res.json()
+
+            if (!res.ok) {
+                const text = await res.text()
+                console.error("Preparation failed:", res.status, text)
+                throw new Error(`Server returned ${res.status}: ${text || 'Unknown error'}`)
+            }
+
+            const text = await res.text()
+            if (!text) {
+                throw new Error("API returned empty response")
+            }
+
+            let data
+            try {
+                data = JSON.parse(text)
+            } catch (e) {
+                console.error("JSON parse failed:", text)
+                throw new Error("Invalid response format from server")
+            }
+
+            const { schema } = data
+            if (!schema) {
+                throw new Error("API response missing schema")
+            }
 
             sessionStorage.setItem("confirmed_schema", JSON.stringify(schema))
             router.push("/setup")
-        } catch (error) {
-            console.error("Preparation failed:", error)
+        } catch (err: any) {
+            console.error("Preparation failed:", err)
+            setError(err.message || "Failed to prepare your setup. Please try again.")
         } finally {
             setLoading(false)
         }
@@ -81,10 +113,17 @@ export default function ConfirmPage() {
                     </Button>
                 </header>
 
+                {error && (
+                    <div className="bg-destructive/10 border border-destructive/20 text-destructive p-4 rounded-lg flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+                        <AlertCircle className="h-5 w-5" />
+                        <p className="text-sm font-medium">{error}</p>
+                    </div>
+                )}
+
                 <div className="space-y-4">
                     {fields.map((field, i) => (
                         <Card
-                            key={`${field.component}-${field.field_id}`}
+                            key={`${field.component}-${field.field_id}-${i}`}
                             className={`transition-all ${field.confirmed ? 'bg-card/50 border-primary/30' : 'bg-secondary/20 border-border opacity-60'}`}
                             onClick={() => toggleField(i)}
                         >

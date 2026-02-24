@@ -1,16 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getGitHubToken } from '@/lib/github-token';
-import { analyzeJSX } from '@/lib/ai';
 
 export async function POST(request: Request) {
     try {
-        const { files } = await request.json();
-
-        if (!files || !Array.isArray(files)) {
-            return NextResponse.json({ error: 'Missing or invalid files array' }, { status: 400 });
-        }
-
         const supabase = await createClient();
 
         try {
@@ -22,10 +15,23 @@ export async function POST(request: Request) {
             )
         }
 
-        const fields = await analyzeJSX(files);
-        return NextResponse.json(fields);
+        const { schema } = await request.json();
+
+        if (!schema) {
+            return NextResponse.json({ error: 'Missing schema' }, { status: 400 });
+        }
+
+        const content_json = JSON.stringify(schema, null, 2);
+
+        // Validate it parses back
+        try {
+            JSON.parse(content_json);
+        } catch (e) {
+            return NextResponse.json({ error: 'INVALID_JSON_GENERATED' }, { status: 500 });
+        }
+
+        return NextResponse.json({ content_json });
     } catch (error: any) {
-        console.error("Analysis API failed:", error);
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
