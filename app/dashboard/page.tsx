@@ -15,6 +15,8 @@ export default function DashboardPage() {
     const supabase = createClient()
     const repo = typeof window !== 'undefined' ? sessionStorage.getItem("selected_repo") : null
 
+    const [pendingChanges, setPendingChanges] = useState<Record<string, any>>({})
+
     useEffect(() => {
         if (!repo) {
             router.push("/connect")
@@ -36,7 +38,20 @@ export default function DashboardPage() {
         }
 
         fetchContent()
+
+        // Read initial pending changes
+        const raw = sessionStorage.getItem("pending_changes") || "{}"
+        setPendingChanges(JSON.parse(raw))
     }, [repo, router])
+
+    useEffect(() => {
+        const handleFocus = () => {
+            const raw = sessionStorage.getItem("pending_changes") || "{}"
+            setPendingChanges(JSON.parse(raw))
+        }
+        window.addEventListener("focus", handleFocus)
+        return () => window.removeEventListener("focus", handleFocus)
+    }, [])
 
     const handleLogout = async () => {
         await supabase.auth.signOut()
@@ -49,6 +64,8 @@ export default function DashboardPage() {
     if (loading) return <div className="min-h-screen bg-background flex items-center justify-center p-6"><Loader2 className="h-8 w-8 animate-spin" /></div>
 
     const sections = content ? Object.keys(content) : []
+    const hasPending = (sectionName: string) => !!pendingChanges[sectionName]
+    const changeCount = Object.keys(pendingChanges).length
 
     return (
         <div className="min-h-screen bg-background flex">
@@ -86,8 +103,12 @@ export default function DashboardPage() {
                         <Button variant="outline" className="gap-2">
                             <ExternalLink className="h-4 w-4" /> View Site
                         </Button>
-                        <Button className="gap-2 shadow-lg shadow-primary/20" onClick={() => router.push("/preview")}>
-                            <Rocket className="h-4 w-4" /> Review & Publish
+                        <Button
+                            className="gap-2 shadow-lg shadow-primary/20"
+                            disabled={changeCount === 0}
+                            onClick={() => router.push("/publishing")}
+                        >
+                            <Rocket className="h-4 w-4" /> Publish {changeCount > 0 ? `(${changeCount} sections)` : ""}
                         </Button>
                         <Button
                             variant="ghost"
@@ -109,9 +130,12 @@ export default function DashboardPage() {
                         {sections.map(section => (
                             <Card
                                 key={section}
-                                className="group cursor-pointer hover:border-primary/50 transition-all bg-card/50"
+                                className="group cursor-pointer hover:border-primary/50 transition-all bg-card/50 relative"
                                 onClick={() => router.push(`/edit/${section}`)}
                             >
+                                {hasPending(section) && (
+                                    <div className="absolute top-3 right-3 w-2 h-2 rounded-full bg-accent animate-pulse shadow-[0_0_8px_var(--accent)]" />
+                                )}
                                 <CardHeader>
                                     <CardTitle className="capitalize">{section}</CardTitle>
                                     <CardDescription>

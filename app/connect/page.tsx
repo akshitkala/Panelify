@@ -154,7 +154,7 @@ export default function ConnectRepoPage() {
                                             <Button size="sm" onClick={(e) => {
                                                 e.stopPropagation()
                                                 sessionStorage.setItem("selected_repo", repo.full_name)
-                                                sessionStorage.setItem("default_branch", repo.default_branch)
+                                                sessionStorage.setItem("selected_branch", repo.default_branch)
                                                 router.push(`/scanning?repo=${repo.full_name}`)
                                             }}>
                                                 Continue

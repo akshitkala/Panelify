@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     const MAX_SIZE = 2 * 1024 * 1024;
     if (file.size > MAX_SIZE) {
         return NextResponse.json(
-            { error: 'File too large', code: 'FILE_TOO_LARGE' },
+            { error: 'File too large. Maximum size is 2MB.', code: 'FILE_TOO_LARGE' },
             { status: 413 }
         );
     }
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
     const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
     if (!ALLOWED_TYPES.includes(file.type)) {
         return NextResponse.json(
-            { error: 'Unsupported file type', code: 'BAD_TYPE' },
+            { error: 'Unsupported file type. Use JPG, PNG, or WebP.', code: 'BAD_TYPE' },
             { status: 415 }
         );
     }
