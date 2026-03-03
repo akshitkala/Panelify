@@ -21,67 +21,75 @@ export async function POST(request: Request) {
     const octokit = new Octokit({ auth: token });
     const [owner, repo] = repo_full_name.split('/');
 
-    // 1. Recursive search for JSX/TSX files in likely directories
-    const searchDirs = ['components', 'app', 'pages', 'lib'];
-    const discoveredFiles: { path: string; content: string }[] = [];
+    // 1. Get default branch dynamically
+    const { data: repoData } = await octokit.repos.get({
+      owner,
+      repo
+    });
+    const defaultBranch = repoData.default_branch;
 
-    async function scanDir(path: string) {
-      try {
-        const { data: content } = await octokit.repos.getContent({
+    // 2. Get full recursive tree
+    const { data: treeData } = await octokit.git.getTree({
+      owner,
+      repo,
+      tree_sha: defaultBranch,
+      recursive: 'true'
+    });
+
+    function isValidSourceFile(filePath: string): boolean {
+      // Must be a JS/TS file
+      if (
+        !filePath.endsWith('.tsx') &&
+        !filePath.endsWith('.jsx') &&
+        !filePath.endsWith('.ts') &&
+        !filePath.endsWith('.js')
+      ) return false;
+
+      // Exclude config, test, build artifacts
+      const lowerPath = filePath.toLowerCase();
+      if (
+        lowerPath.endsWith('.config.js') ||
+        lowerPath.endsWith('.config.mjs') ||
+        lowerPath.endsWith('.config.ts') ||
+        lowerPath.includes('.test.') ||
+        lowerPath.includes('.spec.') ||
+        lowerPath.includes('node_modules') ||
+        lowerPath.includes('.next') ||
+        lowerPath.includes('dist/') ||
+        lowerPath.includes('build/')
+      ) return false;
+
+      return true;
+    }
+
+    // 3. Filter and prioritized files
+    const allFiles = treeData.tree
+      .filter(item => item.type === 'blob' && isValidSourceFile(item.path!))
+      .map(item => item.path!);
+
+    // Priority sorting: components > pages > app
+    const priorityOrder = (path: string) => {
+      if (path.includes('components/')) return 0;
+      if (path.includes('pages/')) return 1;
+      if (path.includes('app/')) return 2;
+      return 3;
+    };
+
+    const sortedFiles = allFiles.sort((a, b) => priorityOrder(a) - priorityOrder(b));
+    const finalFilesToScan = sortedFiles.slice(0, 50);
+
+    // 4. Fetch content for selected files
+    const discoveredFiles = await Promise.all(
+      finalFilesToScan.map(async (path) => {
+        const { data: fileData }: any = await octokit.repos.getContent({
           owner,
           repo,
           path
         });
-
-        if (Array.isArray(content)) {
-          for (const item of content) {
-            if (discoveredFiles.length >= 10) break;
-
-            if (item.type === 'dir' && searchDirs.some(d => item.path.startsWith(d))) {
-              await scanDir(item.path);
-            } else if (item.type === 'file' && /\.(tsx|jsx|js|ts)$/.test(item.name)) {
-              // Fetch file content
-              const { data: fileData }: any = await octokit.repos.getContent({
-                owner,
-                repo,
-                path: item.path
-              });
-              const decoded = Buffer.from(fileData.content, 'base64').toString('utf-8');
-              discoveredFiles.push({
-                path: item.path,
-                content: decoded
-              });
-            }
-          }
-        }
-      } catch (e) {
-        // Ignore missing dirs
-      }
-    }
-
-    // Start scanning from root for specific dirs
-    const { data: rootContent } = await octokit.repos.getContent({ owner, repo, path: '' });
-    if (Array.isArray(rootContent)) {
-      for (const item of rootContent) {
-        if (discoveredFiles.length >= 10) break;
-        if (searchDirs.includes(item.name)) {
-          await scanDir(item.name);
-        }
-        // Also scan root files
-        if (item.type === 'file' && /\.(tsx|jsx|js|ts)$/.test(item.name)) {
-          const { data: fileData }: any = await octokit.repos.getContent({
-            owner,
-            repo,
-            path: item.path
-          });
-          const decoded = Buffer.from(fileData.content, 'base64').toString('utf-8');
-          discoveredFiles.push({
-            path: item.path,
-            content: decoded
-          });
-        }
-      }
-    }
+        const decoded = Buffer.from(fileData.content, 'base64').toString('utf-8');
+        return { path, content: decoded };
+      })
+    );
 
     return NextResponse.json(discoveredFiles);
   } catch (error: any) {

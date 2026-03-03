@@ -155,6 +155,7 @@ export default function ConnectRepoPage() {
                                                 e.stopPropagation()
                                                 sessionStorage.setItem("selected_repo", repo.full_name)
                                                 sessionStorage.setItem("selected_branch", repo.default_branch)
+                                                sessionStorage.setItem("selected_platform", repo.platform || 'unknown')
                                                 router.push(`/scanning?repo=${repo.full_name}`)
                                             }}>
                                                 Continue

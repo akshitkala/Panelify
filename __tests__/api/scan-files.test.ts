@@ -32,7 +32,7 @@ describe('api/scan/files - Verification Tests', () => {
         vi.clearAllMocks()
         // @ts-ignore
         createClient.mockResolvedValue({
-            auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { provider_token: 'tok' } } }) }
+            auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: 'test-user' }, provider_token: 'tok' } } }) }
         })
     })
 

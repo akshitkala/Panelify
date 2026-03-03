@@ -22,11 +22,13 @@ Editable types:
 2. 'textarea': Longer descriptive text (paragraphs, about sections).
 3. 'image': Image paths usually in 'src' attributes (e.g., /images/hero.jpg).
 
-RULES:
+RULES (IMPORTANT):
 - Do NOT identify technical strings (classNames, event handlers, route paths like '/login').
 - Do NOT identify layout boilerplate (e.g. "Made with React").
-- For each field, provide: component (the name of the component, e.g. "Hero"), a unique field_id (snake_case), a human-readable label, type, current_value, and confidence score (0.0 to 1.0).
-- **CRITICAL**: The "component" property is REQUIRED and must match the component name found in the file.
+- Do NOT identify dynamic values like {props.title}, {data.name}, or backtick template literals with variables.
+- Strings must be at least 3 characters long to be considered.
+- For each field, provide: component (the name of the component), a unique field_id (snake_case), a human-readable label, type, current_value, and confidence score (0.0 to 1.0).
+- The "component" property is REQUIRED and must match the component name found in the file.
 - Return ONLY a JSON array of AIField objects.
 `;
 
@@ -35,14 +37,26 @@ export async function analyzeJSX(
 ): Promise<AIField[]> {
     try {
         const results = await analyzeWithGemini(files);
+        console.log('✓ Gemini succeeded, fields:', results.length);
         return mapResults(results, files);
-    } catch (err) {
-        console.warn('Gemini failed, falling back to Groq:', err);
+    } catch (err: any) {
+        console.error('✗ Gemini failed')
+        console.error('  message:', err.message)
+        console.error('  status:', err.status ?? 'no status')
+        console.error('  code:', err.code ?? 'no code')
+        console.error('  errorDetails:', JSON.stringify(err.errorDetails ?? {}))
+        console.error('  stack:', err.stack?.split('\n')[0])
+
         try {
             const results = await analyzeWithGroq(files);
+            console.log('✓ Groq succeeded, fields:', results.length);
             return mapResults(results, files);
-        } catch (groqErr) {
-            console.error('Both Gemini and Groq failed:', groqErr);
+        } catch (groqErr: any) {
+            console.error('✗ Groq failed')
+            console.error('  message:', groqErr.message)
+            console.error('  status:', groqErr.status ?? 'no status')
+            console.error('  code:', groqErr.code ?? 'no code')
+            console.error('  stack:', groqErr.stack?.split('\n')[0])
             throw new Error('AI_ERROR');
         }
     }
@@ -68,34 +82,52 @@ function mapResults(results: AIField[], files: { path: string; content: string }
 
 async function analyzeWithGemini(files: { path: string; content: string }[]): Promise<AIField[]> {
     const model = genAI.getGenerativeModel({
-        model: "gemini-1.5-flash-latest",
-        generationConfig: { responseMimeType: "application/json" }
+        model: "gemini-2.5-flash",
+        generationConfig: {
+            responseMimeType: "application/json",
+            temperature: 0
+        }
     });
 
     const prompt = `${SYSTEM_PROMPT}\n\nFiles to analyze:\n${JSON.stringify(files)}`;
 
     const result = await Promise.race([
         model.generateContent(prompt),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), 9000))
+        new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('TIMEOUT')), 15000)
+        )
     ]) as any;
 
-    const response = await result.response;
-    const text = response.text();
-    return JSON.parse(text);
-}
+    // result IS the GenerateContentResponse — do not call .response on it
+    const text = result.response.text();
 
+    console.log('Gemini raw response length:', text.length);
+
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : (parsed.fields || []);
+}
 async function analyzeWithGroq(files: { path: string; content: string }[]): Promise<AIField[]> {
     const completion = await groq.chat.completions.create({
         messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: `Files to analyze:\n${JSON.stringify(files)}` }
+            {
+                role: "system",
+                content: SYSTEM_PROMPT + "\nIMPORTANT: Return a JSON object with a 'fields' key containing the array."
+            },
+            {
+                role: "user",
+                content: `Files to analyze:\n${JSON.stringify(files)}`
+            }
         ],
-        model: "llama-3.3-70b-versatile", // Closest versatile model in v1.1 spec
-        response_format: { type: "json_object" }
+        model: "llama-3.3-70b-versatile",
+        response_format: { type: "json_object" },
+        temperature: 0
     });
 
     const content = completion.choices[0].message.content;
     if (!content) throw new Error('EMPTY_GROQ_RESPONSE');
+
+    console.log('Groq raw response length:', content.length);
+
     const parsed = JSON.parse(content);
     return Array.isArray(parsed) ? parsed : (parsed.fields || []);
 }

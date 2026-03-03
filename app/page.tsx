@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ChevronRight, Github, Zap, Shield, Sparkles, Layout, Code2, Globe } from "lucide-react"
@@ -9,12 +10,20 @@ import { ChevronRight, Github, Zap, Shield, Sparkles, Layout, Code2, Globe } fro
 export default function LandingPage() {
   const router = useRouter()
   const [scrolled, setScrolled] = useState(false)
+  const [user, setUser] = useState<any>(null)
+  const supabase = createClient()
 
   useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      setUser(session?.user ?? null)
+    }
+    checkUser()
+
     const handleScroll = () => setScrolled(window.scrollY > 20)
     window.addEventListener("scroll", handleScroll)
     return () => window.removeEventListener("scroll", handleScroll)
-  }, [])
+  }, [supabase])
 
   return (
     <div className="min-h-screen bg-[#050505] text-white selection:bg-primary/30 selection:text-white overflow-hidden">
@@ -33,10 +42,18 @@ export default function LandingPage() {
             <span className="font-display font-bold text-xl tracking-tight">Panelify</span>
           </div>
           <div className="flex items-center gap-6">
-            <Button variant="ghost" className="hidden md:flex text-muted-foreground hover:text-white" onClick={() => router.push("/login")}>Sign In</Button>
-            <Button className="gap-2 shadow-lg shadow-primary/20" onClick={() => router.push("/login")}>
-              Get Started <ChevronRight className="h-4 w-4" />
-            </Button>
+            {user ? (
+              <Button className="gap-2 shadow-lg shadow-primary/20" onClick={() => router.push("/dashboard")}>
+                Go to Dashboard <ChevronRight className="h-4 w-4" />
+              </Button>
+            ) : (
+              <>
+                <Button variant="ghost" className="hidden md:flex text-muted-foreground hover:text-white" onClick={() => router.push("/login")}>Sign In</Button>
+                <Button className="gap-2 shadow-lg shadow-primary/20" onClick={() => router.push("/login")}>
+                  Get Started <ChevronRight className="h-4 w-4" />
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </nav>
@@ -57,9 +74,15 @@ export default function LandingPage() {
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 pt-4 animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-300">
-            <Button size="lg" className="h-14 px-8 text-lg font-bold shadow-2xl shadow-primary/20" onClick={() => router.push("/login")}>
-              Get Started for Free
-            </Button>
+            {user ? (
+              <Button size="lg" className="h-14 px-8 text-lg font-bold shadow-2xl shadow-primary/20" onClick={() => router.push("/dashboard")}>
+                Go to Dashboard
+              </Button>
+            ) : (
+              <Button size="lg" className="h-14 px-8 text-lg font-bold shadow-2xl shadow-primary/20" onClick={() => router.push("/login")}>
+                Get Started for Free
+              </Button>
+            )}
             <Button size="lg" variant="outline" className="h-14 px-8 text-lg bg-card/20 border-border hover:bg-card/40">
               <Github className="mr-2 h-5 w-5" /> View on GitHub
             </Button>

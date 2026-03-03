@@ -18,7 +18,36 @@ export async function extractJSXFiles(files: { path: string; content: string }[]
         }));
 }
 
-// In Day 5 we'll implement the actual AST-based extraction if needed,
-// though passing the whole file to Gemini Flash is often more effective
-// for context. The spec mentions Babel AST for "safe refactoring" on Day 7.
-// For Day 5, we'll implement the fetch and pipeline.
+/**
+ * Identifies pages/routes from the project structure
+ */
+export function detectPagesFromURL(files: string[]): string[] {
+    const routes = new Set<string>();
+    routes.add('/'); // Always include root
+
+    files.forEach(path => {
+        // App Router detection
+        if (path.startsWith('app/')) {
+            const parts = path.split('/');
+            // Look for page.tsx or page.jsx
+            if (parts.pop()?.startsWith('page.')) {
+                const route = parts.slice(1).join('/');
+                routes.add(route === '' ? '/' : `/${route}`);
+            }
+        }
+        // Pages Router detection
+        else if (path.startsWith('pages/')) {
+            // Filter out _app, _document, api/
+            if (path.includes('_app') || path.includes('_document') || path.includes('pages/api/')) return;
+
+            const route = path
+                .replace('pages/', '')
+                .replace(/\.(tsx|jsx|js|ts)$/, '')
+                .replace(/\/index$/, '');
+
+            routes.add(route === '' ? '/' : `/${route}`);
+        }
+    });
+
+    return Array.from(routes).sort();
+}

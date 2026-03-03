@@ -48,34 +48,27 @@ export async function POST(req: NextRequest) {
 
         const backupBranch = `panelify-backup-${new Date().toISOString().split('T')[0]}`
 
-        // Check if backup branch already exists
-        let branchExists = false
         try {
-            await octokit.git.getRef({
-                owner,
-                repo,
-                ref: `heads/${backupBranch}`
-            })
-            branchExists = true
-        } catch (err: any) {
-            if (err.status === 404) {
-                branchExists = false
-            } else {
-                throw err
-            }
-        }
-
-        if (!branchExists) {
             await octokit.git.createRef({
                 owner,
                 repo,
                 ref: `refs/heads/${backupBranch}`,
                 sha
             })
+            console.log('✓ Backup branch created:', backupBranch)
+            return NextResponse.json({ branch: backupBranch, branch_name: backupBranch, sha, skipped: false })
+        } catch (err: any) {
+            if (err.status === 422 && err.message?.includes('Reference already exists')) {
+                console.log('✓ Backup branch already exists — skipping creation:', backupBranch)
+                return NextResponse.json({
+                    branch: backupBranch,
+                    branch_name: backupBranch,
+                    sha,
+                    skipped: true
+                })
+            }
+            throw err
         }
-
-        console.log('✓ Backup branch ready:', backupBranch)
-        return NextResponse.json({ branch_name: backupBranch, sha })
 
     } catch (err: any) {
         console.error('Backup branch error:', {

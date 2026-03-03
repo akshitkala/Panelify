@@ -41,6 +41,9 @@ export default function SetupPage() {
             }
 
             try {
+                const platform = sessionStorage.getItem("selected_platform") || "unknown"
+                const vercelUrl = sessionStorage.getItem("selected_vercel_url") || null
+
                 // Step 1: Backup
                 setCurrentStep(0)
                 const backupRes = await fetch("/api/setup/backup", {
@@ -91,7 +94,9 @@ export default function SetupPage() {
                         repo_full_name: repo,
                         branch: defaultBranch,
                         files: refactoredFiles,
-                        content_json: JSON.stringify(schema, null, 2)
+                        content_json: JSON.stringify(schema, null, 2),
+                        platform,
+                        vercel_url: vercelUrl
                     })
                 })
                 if (!commitRes.ok) {
@@ -114,7 +119,7 @@ export default function SetupPage() {
         }
 
         runSetup()
-    }, [router])
+    }, [])
 
     return (
         <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">

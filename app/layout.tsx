@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Syne, DM_Sans, DM_Mono } from "next/font/google";
+import { Header } from "@/components/Header";
 import "./globals.css";
 
 const syne = Syne({
@@ -33,7 +34,8 @@ export default function RootLayout({
       <body
         className={`${syne.variable} ${dmSans.variable} ${dmMono.variable} font-body antialiased bg-background text-foreground`}
       >
-        {children}
+        <Header />
+        <main>{children}</main>
       </body>
     </html>
   );

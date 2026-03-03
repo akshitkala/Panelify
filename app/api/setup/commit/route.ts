@@ -5,7 +5,7 @@ import { Octokit } from '@octokit/rest';
 
 export async function POST(request: Request) {
     try {
-        const { repo_full_name, branch, files, content_json } = await request.json();
+        const { repo_full_name, branch, files, content_json, platform, vercel_url, commitMessage } = await request.json();
         const supabase = await createClient();
 
         let token: string
@@ -21,83 +21,91 @@ export async function POST(request: Request) {
         const octokit = new Octokit({ auth: token });
         const [owner, repo] = repo_full_name.split('/');
 
-        // 1. Get current commit SHA
+        // STEP 1 — Get the LIVE current SHA of the branch
+        // Do this FIRST, immediately before anything else
         const { data: refData } = await octokit.git.getRef({
             owner,
             repo,
             ref: `heads/${branch}`
         });
-        const currentCommitSha = refData.object.sha;
+        const latestSha = refData.object.sha;
+        console.log('Latest SHA fetched live:', latestSha);
 
-        // 2. Get current tree SHA
-        const { data: commitData } = await octokit.git.getCommit({
+        // Prepare files list (including content.json)
+        const filesToCommit = [
+            ...files.map((f: any) => ({ path: f.path, content: f.new_content })),
+            { path: 'content.json', content: content_json }
+        ];
+
+        // STEP 2 — Create blob for each file
+        const blobs = await Promise.all(
+            filesToCommit.map(async (file: { path: string, content: string }) => {
+                const { data: blob } = await octokit.git.createBlob({
+                    owner,
+                    repo,
+                    content: Buffer.from(file.content).toString('base64'),
+                    encoding: 'base64'
+                })
+                return { path: file.path, sha: blob.sha }
+            })
+        );
+        console.log('Blobs created:', blobs.length);
+
+        // STEP 3 — Create tree using latestSha as base
+        const { data: treeData } = await octokit.git.createTree({
             owner,
             repo,
-            commit_sha: currentCommitSha
-        });
-        const currentTreeSha = commitData.tree.sha;
-
-        // 3. Create blobs/tree items
-        const treeItems = [];
-
-        // Refactored files
-        for (const file of files) {
-            const { data: blobData } = await octokit.git.createBlob({
-                owner,
-                repo,
-                content: file.new_content,
-                encoding: 'utf-8'
-            });
-            treeItems.push({
-                path: file.path,
+            base_tree: latestSha,
+            tree: blobs.map(blob => ({
+                path: blob.path,
                 mode: '100644' as const,
                 type: 'blob' as const,
-                sha: blobData.sha
-            });
-        }
+                sha: blob.sha
+            }))
+        });
+        console.log('Tree created:', treeData.sha);
 
-        // content.json
-        const { data: contentBlob } = await octokit.git.createBlob({
+        // STEP 4 — Create commit with latestSha as parent
+        const { data: commitData } = await octokit.git.createCommit({
             owner,
             repo,
-            content: content_json,
-            encoding: 'utf-8'
+            message: commitMessage ?? 'build: setup Panelify CMS refactor',
+            tree: treeData.sha,
+            parents: [latestSha]
         });
-        treeItems.push({
-            path: 'content.json',
-            mode: '100644' as const,
-            type: 'blob' as const,
-            sha: contentBlob.sha
-        });
+        console.log('Commit created:', commitData.sha);
 
-        // 4. Create new tree
-        const { data: newTreeData } = await octokit.git.createTree({
-            owner,
-            repo,
-            base_tree: currentTreeSha,
-            tree: treeItems
-        });
-
-        // 5. Create new commit
-        const { data: newCommitData } = await octokit.git.createCommit({
-            owner,
-            repo,
-            message: 'build: setup Panelify CMS refactor',
-            tree: newTreeData.sha,
-            parents: [currentCommitSha]
-        });
-
-        // 6. Update reference
+        // STEP 5 — Update branch ref (fast-forward)
         await octokit.git.updateRef({
             owner,
             repo,
             ref: `heads/${branch}`,
-            sha: newCommitData.sha
+            sha: commitData.sha,
+            force: false
         });
+        console.log('Branch updated successfully');
+
+        // STEP 6 — Save site to Supabase
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+            await supabase.from('sites').upsert({
+                user_id: session.user.id,
+                repo_full_name: repo_full_name,
+                default_branch: branch,
+                platform: platform ?? 'unknown',
+                vercel_url: vercel_url ?? null,
+                content_sha: commitData.sha,
+                updated_at: new Date().toISOString()
+            }, {
+                onConflict: 'repo_full_name',
+                ignoreDuplicates: false
+            });
+            console.log('Site saved to DB');
+        }
 
         return NextResponse.json({
-            commit_sha: newCommitData.sha,
-            commit_url: newCommitData.html_url
+            commit_sha: commitData.sha,
+            commit_url: commitData.html_url
         });
 
     } catch (error: any) {

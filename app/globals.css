@@ -73,7 +73,7 @@
   --chart-4: #8be9fd;
   --chart-5: #ff79c6;
   --radius: 8px;
-  
+
   /* Panelify specific tokens */
   --accent-green: #4ade80;
   --accent-red: #ff6a6a;
@@ -87,7 +87,7 @@
   --font-mono: var(--font-mono);
   --color-accent-green: var(--accent-green);
   --color-accent-red: var(--accent-red);
-  
+
   /* Map Shadcn system variables */
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
@@ -106,7 +106,7 @@
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
-  
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -120,7 +120,44 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  @keyframes pulse-glow {
+
+    0%,
+    100% {
+      opacity: 1;
+      box-shadow: 0 0 5px var(--primary);
+    }
+
+    50% {
+      opacity: 0.7;
+      box-shadow: 0 0 15px var(--primary);
+    }
+  }
+
+  .animate-shimmer {
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  .animate-pulse-glow {
+    animation: pulse-glow 2s infinite;
   }
 }

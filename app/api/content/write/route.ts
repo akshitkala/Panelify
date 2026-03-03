@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
             )
         }
 
-        const { repo_full_name, branch, changes } = await req.json()
+        const { repo_full_name, branch, changes, is_rollback } = await req.json()
         const [owner, repo] = repo_full_name.split('/')
         const octokit = new Octokit({ auth: token })
 
@@ -34,12 +34,19 @@ export async function POST(req: NextRequest) {
             Buffer.from(file.content, 'base64').toString('utf-8')
         )
 
-        // Merge pending changes into current content
-        const merged = { ...currentContent }
-        for (const [section, fields] of Object.entries(changes)) {
-            merged[section] = {
-                ...merged[section],
-                ...(fields as Record<string, string>)
+        // V2 Rollback vs Merge Logic
+        let merged: any
+        if (is_rollback) {
+            // Full replacement for rollbacks
+            merged = changes
+        } else {
+            // Incremental merge for normal publishes
+            merged = { ...currentContent }
+            for (const [section, fields] of Object.entries(changes)) {
+                merged[section] = {
+                    ...merged[section],
+                    ...(fields as Record<string, string>)
+                }
             }
         }
 
@@ -55,6 +62,40 @@ export async function POST(req: NextRequest) {
             sha: currentSha,
             branch
         })
+
+        // V2: Versioning & Site Tracking
+        try {
+            const { data: { user } } = await supabase.auth.getUser()
+
+            // 1. Get Site ID
+            const { data: site } = await supabase
+                .from('sites')
+                .select('id')
+                .eq('repo_full_name', repo_full_name)
+                .single()
+
+            if (site && user) {
+                // 2. Update sites.content_sha
+                await supabase
+                    .from('sites')
+                    .update({ content_sha: result.commit.sha })
+                    .eq('id', site.id)
+
+                // 3. Insert into site_versions
+                await supabase
+                    .from('site_versions')
+                    .insert({
+                        site_id: site.id,
+                        published_by: user.id,
+                        content_json: merged,
+                        commit_sha: result.commit.sha,
+                        commit_url: result.commit.html_url,
+                        changes_summary: Object.keys(changes)
+                    })
+            }
+        } catch (v2Err) {
+            console.error('V2 versioning failed (non-blocking):', v2Err)
+        }
 
         return NextResponse.json({
             commit_sha: result.commit.sha,
