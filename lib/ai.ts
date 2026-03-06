@@ -14,22 +14,39 @@ const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY!);
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 const SYSTEM_PROMPT = `
-You are a React component scanner for Panelify, a CMS that makes hardcoded websites editable.
-Your task is to analyze JSX/TSX code and identify content literals that should be editable by a site owner.
+  You are a React component scanner for Panelify.
+  Analyze JSX/TSX/JS code and identify ALL hardcoded 
+  content strings that a site owner would want to edit.
 
-Editable types:
-1. 'text': Short strings (titles, buttons, single words).
-2. 'textarea': Longer descriptive text (paragraphs, about sections).
-3. 'image': Image paths usually in 'src' attributes (e.g., /images/hero.jpg).
+  INCLUDE:
+  - All visible text: headings, paragraphs, buttons, 
+    labels, badges, navigation items, footer text
+  - Image src paths (not external URLs starting with http)
+  - Alt text for images
+  - Any string that appears as visible content on the page
 
-RULES (IMPORTANT):
-- Do NOT identify technical strings (classNames, event handlers, route paths like '/login').
-- Do NOT identify layout boilerplate (e.g. "Made with React").
-- Do NOT identify dynamic values like {props.title}, {data.name}, or backtick template literals with variables.
-- Strings must be at least 3 characters long to be considered.
-- For each field, provide: component (the name of the component), a unique field_id (snake_case), a human-readable label, type, current_value, and confidence score (0.0 to 1.0).
-- The "component" property is REQUIRED and must match the component name found in the file.
-- Return ONLY a JSON array of AIField objects.
+  EXCLUDE:
+  - CSS class names and Tailwind classes
+  - Event handler strings
+  - Route paths (/login, /dashboard etc)
+  - External URLs (http:// or https://)
+  - Technical attributes (id, name, type, method)
+  - Template literals with variables
+  - Dynamic expressions {props.x} {data.x}
+  - Single characters or strings under 2 chars
+  - SVG path data (M13 10V3L4...)
+  - Aria labels that are purely technical
+
+  For each field return:
+  - component: component function name
+  - field_id: snake_case unique identifier
+  - label: human readable label
+  - type: text | textarea | image
+  - current_value: exact string as it appears in code
+  - confidence: 0.0 to 1.0
+
+  Return ONLY a valid JSON array. No markdown. No explanation.
+  Every visible text string on the page must be included.
 `;
 
 export async function analyzeJSX(
@@ -94,7 +111,7 @@ async function analyzeWithGemini(files: { path: string; content: string }[]): Pr
     const result = await Promise.race([
         model.generateContent(prompt),
         new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('TIMEOUT')), 15000)
+            setTimeout(() => reject(new Error('TIMEOUT')), 25000)
         )
     ]) as any;
 

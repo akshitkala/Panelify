@@ -19,6 +19,9 @@ export async function POST(request: Request) {
 
         const { files, schema } = await request.json();
 
+        console.log('Schema received keys:', Object.keys(schema))
+        console.log('Schema sample:', JSON.stringify(schema).slice(0, 200))
+
         if (!files || !schema) {
             return NextResponse.json({ error: 'Missing files or schema' }, { status: 400 });
         }

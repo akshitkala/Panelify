@@ -97,6 +97,153 @@ export async function POST(req: NextRequest) {
             console.error('V2 versioning failed (non-blocking):', v2Err)
         }
 
+        // V3: Bake-Back Flow
+        try {
+            // 1. Get full recursive tree to find all JSX/TSX files
+            const { data: treeData } = await octokit.git.getTree({
+                owner,
+                repo,
+                tree_sha: branch,
+                recursive: 'true'
+            });
+
+            const isValidSourceFile = (filePath: string): boolean => {
+                if (!/\.(jsx?|tsx?)$/.test(filePath)) return false;
+                const lowerPath = filePath.toLowerCase();
+                if (
+                    lowerPath.includes('node_modules') ||
+                    lowerPath.includes('.next') ||
+                    lowerPath.includes('dist/') ||
+                    lowerPath.includes('build/')
+                ) return false;
+                return true;
+            };
+
+            const filesToScan = treeData.tree
+                .filter(item => item.type === 'blob' && isValidSourceFile(item.path!))
+                .map(item => item.path!);
+
+            // 2. Fetch content and bake
+            const bakeContent = (jsxContent: string, schema: any): string => {
+                let result = jsxContent
+                for (const [section, fields] of Object.entries(schema)) {
+                    for (const [fieldId, value] of Object.entries(
+                        fields as Record<string, string>
+                    )) {
+                        // Replace JSX expression: {content.section.fieldId}
+                        const pattern = new RegExp(
+                            `\\{content\\.${section}\\.${fieldId}\\}`,
+                            'g'
+                        )
+                        result = result.replace(pattern, value as string)
+
+                        // Replace attribute expression: ={content.section.fieldId}
+                        const attrPattern = new RegExp(
+                            `=\\{content\\.${section}\\.${fieldId}\\}`,
+                            'g'
+                        )
+                        result = result.replace(
+                            attrPattern,
+                            `="${value}"`
+                        )
+                    }
+                }
+                return result
+            }
+
+            const removeContentImport = (jsxContent: string): string => {
+                return jsxContent
+                    .split('\n')
+                    .filter(line => !line.includes('content.json'))
+                    .join('\n')
+            }
+
+            const changedFiles: { path: string, content: string }[] = []
+
+            for (const path of filesToScan) {
+                const { data: fileData }: any = await octokit.repos.getContent({
+                    owner,
+                    repo,
+                    path,
+                    ref: branch
+                });
+                const original = Buffer.from(fileData.content, 'base64').toString('utf-8');
+
+                let baked = bakeContent(original, merged)
+                baked = removeContentImport(baked)
+
+                if (baked !== original) {
+                    changedFiles.push({ path, content: baked })
+                }
+            }
+
+            if (changedFiles.length > 0) {
+                console.log(`Baking back ${changedFiles.length} files...`)
+
+                // Get latest SHA again for the atomic commit
+                const { data: refData } = await octokit.git.getRef({
+                    owner, repo, ref: `heads/${branch}`
+                });
+                const latestSha = refData.object.sha;
+
+                // Create blobs
+                const blobs = await Promise.all(
+                    changedFiles.map(async (file) => {
+                        const { data: blob } = await octokit.git.createBlob({
+                            owner, repo,
+                            content: Buffer.from(file.content).toString('base64'),
+                            encoding: 'base64'
+                        })
+                        return { path: file.path, sha: blob.sha }
+                    })
+                )
+
+                // Create tree
+                const { data: newTree } = await octokit.git.createTree({
+                    owner, repo,
+                    base_tree: latestSha,
+                    tree: blobs.map(blob => ({
+                        path: blob.path,
+                        mode: '100644' as const,
+                        type: 'blob' as const,
+                        sha: blob.sha
+                    }))
+                })
+
+                // Create commit
+                const { data: commit } = await octokit.git.createCommit({
+                    owner, repo,
+                    message: 'chore: panelify publish — content baked into JSX',
+                    tree: newTree.sha,
+                    parents: [latestSha]
+                })
+
+                // Update ref
+                await octokit.git.updateRef({
+                    owner, repo,
+                    ref: `heads/${branch}`,
+                    sha: commit.sha
+                })
+
+                console.log('Bake-back commit complete:', commit.sha)
+            }
+
+            // STEP 5 — Delete content.json
+            console.log('Deleting content.json...')
+            await octokit.repos.deleteFile({
+                owner,
+                repo,
+                path: 'content.json',
+                message: 'chore: panelify publish complete — content baked in',
+                sha: result.content?.sha || currentSha, // Use the new SHA if available
+                branch
+            })
+            console.log('content.json deleted')
+
+        } catch (bakeErr) {
+            console.error('V3 bake-back failed:', bakeErr)
+        }
+
         return NextResponse.json({
             commit_sha: result.commit.sha,
             commit_url: result.commit.html_url

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent } from "@/components/ui/card"
 import { CheckCircle2, Circle, Loader2, AlertCircle } from "lucide-react"
@@ -17,13 +17,10 @@ export default function SetupPage() {
     const router = useRouter()
     const [currentStep, setCurrentStep] = useState(0)
     const [completedSteps, setCompletedSteps] = useState<number[]>([])
+    const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    const setupStarted = useRef(false)
 
     useEffect(() => {
-        if (setupStarted.current) return
-        setupStarted.current = true
-
         const runSetup = async () => {
             setError(null)
             const repo = sessionStorage.getItem("selected_repo")
@@ -37,11 +34,7 @@ export default function SetupPage() {
 
             let schema
             try {
-                const parsed = JSON.parse(schemaData)
-                schema = parsed.schema ?? parsed
-                console.log('=== SCHEMA CHECK ===')
-                console.log('Keys:', Object.keys(schema))
-                console.log('Is nested:', 'schema' in schema)
+                schema = JSON.parse(schemaData)
             } catch (e) {
                 setError("Invalid schema found in session. Please start over.")
                 return
@@ -90,8 +83,6 @@ export default function SetupPage() {
                     throw new Error(`Refactoring failed: ${text || refactorRes.statusText}`)
                 }
                 const refactoredFiles = await refactorRes.json()
-                console.log('Refactored files count:', refactoredFiles?.length ?? 0)
-                console.log('Refactored file paths:', refactoredFiles?.map((f: any) => f.path))
                 setCompletedSteps(prev => [...prev, 2])
 
                 // Step 4: Commit
@@ -128,7 +119,7 @@ export default function SetupPage() {
         }
 
         runSetup()
-    }, [router])
+    }, [])
 
     return (
         <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
